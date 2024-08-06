@@ -7,294 +7,340 @@ let iceServers = [];
 let refreshTimerId;
 let frameStartTime;
 
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('apiGatewayUrl').value = 'http://169.239.4.34';
+  document.getElementById('cameraId').value = '98ec61d9-7657-4134-a5cb-674efe1e9957';
+  document.getElementById("username").value = 'psimadmin';
+  document.getElementById("password").value = ''; // TODO: Replace password with the one supplied by CAP
+}, false);
+
+
 // Timeout in milliseconds for polling API Gateway
 const pollingTimeout = 20;
 let videoObject;
 
 async function start() {
-    let startTime = Date.now();
-    frameStartTime = Date.now();
+  let startTime = Date.now();
+  frameStartTime = Date.now();
 
-    if (peerConnection != null) await closePeerConnection();
+  if (peerConnection != null) await closePeerConnection();
 
-    apiGatewayUrl = document.getElementById("apiGatewayUrl").value;
-    if (apiGatewayUrl.slice(-1) == '/')
-        apiGatewayUrl = apiGatewayUrl.slice(0, -1);
-    webRtcUrl = apiGatewayUrl + "/REST/v1/WebRTC";
-    cameraId = document.getElementById("cameraId").value;
-    streamId = document.getElementById("streamId").value;
-    playbackTime = document.getElementById("playbackTime").value;
-    skipGaps = document.getElementById("skipGaps").checked;
-    speed = document.getElementById("speed").value;
-    stunUrl = document.getElementById("stunUrl").value;
-    turnUrl = document.getElementById("turnUrl").value;
-    turnUserName = document.getElementById("turnUserName").value;
-    turnCredential = document.getElementById("turnCredential").value;
+  apiGatewayUrl = document.getElementById("apiGatewayUrl").value;
+  if (apiGatewayUrl.slice(-1) == '/')
+    apiGatewayUrl = apiGatewayUrl.slice(0, -1);
+  webRtcUrl = apiGatewayUrl + "/api/rest/v1/WebRTC";
+  cameraId = document.getElementById("cameraId").value;
+  streamId = document.getElementById("streamId").value;
+  playbackTime = document.getElementById("playbackTime").value;
+  skipGaps = document.getElementById("skipGaps").checked;
+  speed = document.getElementById("speed").value;
+  stunUrl = document.getElementById("stunUrl").value;
+  turnUrl = document.getElementById("turnUrl").value;
+  turnUserName = document.getElementById("turnUserName").value;
+  turnCredential = document.getElementById("turnCredential").value;
 
-    if (stunUrl) {
-        iceServers.push({ urls: stunUrl });
+  iceServers.push({ urls: 'stun:stun.relay.metered.ca:80' });
+
+  iceServers.push({
+    urls: 'turn:global.relay.metered.ca:80',
+    username: '3d62000ffdcb7b65f2ace2c8',
+    credential: 'QKGGz8cpcFXWtI0A',
+  });
+
+  iceServers.push({
+    urls: "turn:global.relay.metered.ca:80?transport=tcp",
+    username: "3d62000ffdcb7b65f2ace2c8",
+    credential: "QKGGz8cpcFXWtI0A",
+  });
+
+  iceServers.push({
+    urls: "turn:global.relay.metered.ca:443",
+    username: "3d62000ffdcb7b65f2ace2c8",
+    credential: "QKGGz8cpcFXWtI0A",
+  });
+
+  iceServers.push({
+    urls: "turns:global.relay.metered.ca:443?transport=tcp",
+    username: "3d62000ffdcb7b65f2ace2c8",
+    credential: "QKGGz8cpcFXWtI0A",
+  });
+
+  if (playbackTime) {
+    frameStartTime = Date.parse(playbackTime);
+  }
+  await login();
+
+  peerConnection = new RTCPeerConnection({ iceServers: iceServers });
+
+  peerConnection.ontrack = evt => document.querySelector('#videoCtl').srcObject = evt.streams[0];
+  peerConnection.onicecandidate = evt => evt.candidate && sendIceCandidate(JSON.stringify(evt.candidate));
+
+  videoObject = document.querySelector('#videoCtl');
+
+  if (navigator.userAgent.search("Firefox")) {
+    requestAnimationFrame(onAnimationFrameReceived);
+  } else {
+    videoObject.requestVideoFrameCallback?.(onFrameReceived);
+  }
+
+  // Diagnostics
+  peerConnection.onconnectionstatechange = () => {
+    console.debug(peerConnection);
+    log("Connection state", peerConnection.connectionState);
+    if (peerConnection.connectionState == "failed") {
+      closePeerConnection();
     }
-    if (turnUrl) {
-        iceServers.push({ urls: turnUrl, username: turnUserName, credential: turnCredential });
+
+    if (peerConnection.connectionState == "connected") {
+      let endTime = Date.now();
+      log(`Establishing connection time: ${endTime - startTime} ms`);
     }
-    if (playbackTime) {
-        
-        frameStartTime = Date.parse(playbackTime);
-    }
-    await login();
+  }
+  peerConnection.oniceconnectionstatechange = () => log("ICE connection state", peerConnection.iceConnectionState);
+  peerConnection.onicegatheringstatechange = () => log("ICE gathering state", peerConnection.iceGatheringState);
+  peerConnection.onsignalingstatechange = () => log("Signaling state", peerConnection.signalingState);
 
-    peerConnection = new RTCPeerConnection({ iceServers: iceServers });
-
-    peerConnection.ontrack = evt => document.querySelector('#videoCtl').srcObject = evt.streams[0];
-    peerConnection.onicecandidate = evt => evt.candidate && sendIceCandidate(JSON.stringify(evt.candidate));
-
-    videoObject = document.querySelector('#videoCtl');
-
-    if (navigator.userAgent.search("Firefox")) {
-        requestAnimationFrame(onAnimationFrameReceived);
-    } else {
-        videoObject.requestVideoFrameCallback?.(onFrameReceived);
-    }
-
-    // Diagnostics
-    peerConnection.onconnectionstatechange = () => {
-        log("Connection state", peerConnection.connectionState);
-        if (peerConnection.connectionState == "failed") {
-            closePeerConnection();
-        }
-
-        if (peerConnection.connectionState == "connected") {
-            let endTime = Date.now();
-            log(`Establishing connection time: ${endTime - startTime} ms`);
-        }
-    }
-    peerConnection.oniceconnectionstatechange = () => log("ICE connection state", peerConnection.iceConnectionState);
-    peerConnection.onicegatheringstatechange = () => log("ICE gathering state", peerConnection.iceGatheringState);
-    peerConnection.onsignalingstatechange = () => log("Signaling state", peerConnection.signalingState);
-		
-    initiateWebRTCSession();
+  initiateWebRTCSession();
 }
 
 
 const onAnimationFrameReceived = () => {
-    let receiver = peerConnection.getReceivers()[0];
-    if (receiver) {
-        let synchronizationData = receiver.getSynchronizationSources()[0];
-        if (synchronizationData) {
-            let frameDate = new Date(frameStartTime + synchronizationData.rtpTimestamp);
-            document.getElementById("frameTimeLabel").innerHTML = formatDate(frameDate);
-        }
+  let receiver = peerConnection.getReceivers()[0];
+  if (receiver) {
+    let synchronizationData = receiver.getSynchronizationSources()[0];
+    if (synchronizationData) {
+      let frameDate = new Date(frameStartTime + synchronizationData.rtpTimestamp);
+      document.getElementById("frameTimeLabel").innerHTML = formatDate(frameDate);
     }
+  }
 
-    requestAnimationFrame(onAnimationFrameReceived);
+  requestAnimationFrame(onAnimationFrameReceived);
 }
 
 
 const onFrameReceived = (now, metadata) => {
-    let frameDate = new Date(frameStartTime + metadata.rtpTimestamp);
-    document.getElementById("frameTimeLabel").innerHTML = formatDate(frameDate);
+  let frameDate = new Date(frameStartTime + metadata.rtpTimestamp);
+  document.getElementById("frameTimeLabel").innerHTML = formatDate(frameDate);
 
-    // Re-register the callback to be notified about the next frame.
-    videoObject.requestVideoFrameCallback(onFrameReceived);
+  // Re-register the callback to be notified about the next frame.
+  videoObject.requestVideoFrameCallback(onFrameReceived);
 };
 
 function formatDate(date) {
-    let month = prependZero(date.getUTCMonth() + 1);
-    let day = prependZero(date.getUTCDate());
-    let hours = prependZero(date.getUTCHours());
-    let minutes = prependZero(date.getUTCMinutes());
-    let seconds = prependZero(date.getUTCSeconds());
+  let month = prependZero(date.getUTCMonth() + 1);
+  let day = prependZero(date.getUTCDate());
+  let hours = prependZero(date.getUTCHours());
+  let minutes = prependZero(date.getUTCMinutes());
+  let seconds = prependZero(date.getUTCSeconds());
 
-    return month + "/" + day + " " + hours + ":" + minutes + ":" + seconds;
+  return month + "/" + day + " " + hours + ":" + minutes + ":" + seconds;
 }
 
 function prependZero(number) {
-    if (number < 10)
-        return "0" + number;
-    else
-        return number;
+  if (number < 10)
+    return "0" + number;
+  else
+    return number;
 }
 
 async function closePeerConnection() {
-    await peerConnection.close();
-    document.querySelector('#videoCtl').srcObject = null;
-    candidates.length = 0; iceServers.length = 0;
-    document.getElementById("frameTimeLabel").innerHTML = "";
-    clearAnyRefreshTimers();
+  await peerConnection.close();
+  document.querySelector('#videoCtl').srcObject = null;
+  candidates.length = 0; iceServers.length = 0;
+  document.getElementById("frameTimeLabel").innerHTML = "";
+  clearAnyRefreshTimers();
 };
 
 function log() {
-    let diagnostics = document.getElementById('diagnostics');
-    let argumentsArray = Array.prototype.slice.call(arguments);
-    let logMessage = argumentsArray.join(': ');
-    diagnostics.innerHTML += logMessage + '<br>';
+  let diagnostics = document.getElementById('diagnostics');
+  let argumentsArray = Array.prototype.slice.call(arguments);
+  let logMessage = argumentsArray.join(': ');
+  diagnostics.innerHTML += logMessage + '<br>';
 }
 
 async function initiateWebRTCSession() {
-    try {
-        let body = { cameraId: cameraId, resolution: "notInUse" };
-        if (streamId)
-            body.streamId = streamId;
-        if (playbackTime) {
-            let playbackTimeNode = { playbackTime: playbackTime };
-            if (speed)
-                playbackTimeNode.speed = speed;
-            playbackTimeNode.skipGaps = skipGaps;
-            body.playbackTimeNode = playbackTimeNode;
-        }
-        // pass any configured STUN or TURN servers on to the VMS
-        body.iceServers = [];
-        if (stunUrl) {
-            body.iceServers.push({ url: stunUrl });
-        }
-        if (turnUrl) {
-            body.iceServers.push({ url: turnUrl, username: turnUserName, credential: turnCredential });
-        }
-
-        // Initiate WebRTC session on the server        
-        await fetch(webRtcUrl + "/Session", {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            body: JSON.stringify(body),
-            
-        }).then(async function (response)
-        {
-            await checkResponse(response);
-
-            let sessionData = await response.json();
-            sessionId = sessionData["sessionId"];
-
-            // Update answerSDP value on the server
-            await peerConnection.setRemoteDescription(JSON.parse(sessionData["offerSDP"]));
-            console.log("remote sdp:\n" + peerConnection.remoteDescription.sdp);
-
-            peerConnection.createAnswer()
-                .then((answer) => peerConnection.setLocalDescription(answer))
-                .then(() => console.log("local sdp:\n" + peerConnection.localDescription.sdp))
-                .then(() => updateAnswerSDP(JSON.stringify(peerConnection.localDescription)));
-
-            // Add server ICE candidates
-            addServerIceCandidates();
-
-            console.log('InitiateWebRTCSession end');
-            return;
-        }).catch(function (error) {
-            let msg = "Failed to initiate WebRTC session - " + error;
-            console.log(msg);
-            log(msg);
-        });
+  try {
+    let body = { cameraId: cameraId, resolution: "notInUse", iceServers: [] };
+    if (streamId)
+      body.streamId = streamId;
+    if (playbackTime) {
+      let playbackTimeNode = { playbackTime: playbackTime };
+      if (speed)
+        playbackTimeNode.speed = speed;
+      playbackTimeNode.skipGaps = skipGaps;
+      body.playbackTimeNode = playbackTimeNode;
     }
-    catch (error) {
-        console.log(error);
-        return error;
-    }
+
+    body.iceServers.push({ url: 'stun:stun.relay.metered.ca:80' });
+
+    body.iceServers.push({
+      url: 'turn:global.relay.metered.ca:80',
+      username: '3d62000ffdcb7b65f2ace2c8',
+      credential: 'QKGGz8cpcFXWtI0A',
+    });
+
+    body.iceServers.push({
+      url: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: "3d62000ffdcb7b65f2ace2c8",
+      credential: "QKGGz8cpcFXWtI0A",
+    });
+
+    body.iceServers.push({
+      url: "turn:global.relay.metered.ca:443",
+      username: "3d62000ffdcb7b65f2ace2c8",
+      credential: "QKGGz8cpcFXWtI0A",
+    });
+
+    body.iceServers.push({
+      url: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: "3d62000ffdcb7b65f2ace2c8",
+      credential: "QKGGz8cpcFXWtI0A",
+    });
+
+
+    // Initiate WebRTC session on the server        
+    await fetch(webRtcUrl + "/Session", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(body),
+
+    }).then(async function (response) {
+      await checkResponse(response);
+
+      let sessionData = await response.json();
+      sessionId = sessionData["sessionId"];
+
+      // Update answerSDP value on the server
+      await peerConnection.setRemoteDescription(JSON.parse(sessionData["offerSDP"]));
+      console.log("remote sdp:\n" + peerConnection.remoteDescription.sdp);
+
+      await peerConnection.createAnswer()
+        .then((answer) => peerConnection.setLocalDescription(answer))
+        .then(() => console.log("local sdp:\n" + peerConnection.localDescription.sdp))
+        .then(() => updateAnswerSDP(JSON.stringify(peerConnection.localDescription)));
+
+      // Add server ICE candidates
+      await addServerIceCandidates();
+
+      console.log('InitiateWebRTCSession end');
+      return;
+    }).catch(function (error) {
+      let msg = "Failed to initiate WebRTC session - " + error;
+      console.log(msg);
+      log(msg);
+    });
+  }
+  catch (error) {
+    console.log(error);
+    return error;
+  }
 }
 
 async function updateAnswerSDP(localDescription) {
-    let patchAnswerSDPData = {
-        'answerSDP': localDescription
-    };
+  let patchAnswerSDPData = {
+    'answerSDP': localDescription
+  };
 
-    await fetch(webRtcUrl + "/Session/" + sessionId, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify(patchAnswerSDPData)
-    }).then(async function (response) {
-        await checkResponse(response);
+  await fetch(webRtcUrl + "/Session/" + sessionId, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    },
+    body: JSON.stringify(patchAnswerSDPData)
+  }).then(async function (response) {
+    await checkResponse(response);
 
-        if (await response.ok) {
-            console.log('AnswerSDP updated successfully');
-        }
+    if (await response.ok) {
+      console.log('AnswerSDP updated successfully');
+    }
 
-        const json = response.json();
-        console.log('Updated WebRTC session object: ' + json);
-        return json;
-    }).catch(function(error){
-        let msg = "Failed to update session with answerSDP - " + error;
-        console.log(msg);
-        log(msg);
-    });
+    const json = await response.json();
+    console.log('Updated WebRTC session object: ', json);
+    return json;
+  }).catch(function (error) {
+    let msg = "Failed to update session with answerSDP - " + error;
+    console.log(msg);
+    log(msg);
+  });
 }
 
 // Polling API Gateway to get remote ICE candidates
 async function addServerIceCandidates() {
-    if (peerConnection.iceConnectionState == "new" ||
-        peerConnection.iceConnectionState == "checking") {
+  if (peerConnection.iceConnectionState == "new" ||
+    peerConnection.iceConnectionState == "checking") {
 
-        await fetch(webRtcUrl + "/IceCandidates/" + sessionId, {
-            method: 'GET',
-            headers: {
-                'Authorization': 'Bearer ' + token
-            }
-        }).then(async function (response) {
-            await checkResponse(response);
+    await fetch(webRtcUrl + "/IceCandidates/" + sessionId, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    }).then(async function (response) {
+      await checkResponse(response);
 
-            const json = await response.json();
-            for (const element of json["candidates"]) {
-                if (!candidates.includes(element)) {
-                    console.log("ICE candidate data: " + element);
-                    candidates.push(element);
-                    let obj = JSON.parse(element);
-                    await peerConnection.addIceCandidate(obj);
-                }
-            }
+      const json = await response.json();
+      for (const element of json["candidates"]) {
+        if (!candidates.includes(element)) {
+          console.log("ICE candidate data: " + element);
+          candidates.push(element);
+          let obj = JSON.parse(element);
+          await peerConnection.addIceCandidate(obj);
+        }
+      }
 
-        }).catch(function (error) {
-            let msg = "Failed to retrieve ICE candidate from server - " + error;
-            console.log(msg);
-            log(msg);
-        });
+    }).catch(function (error) {
+      let msg = "Failed to retrieve ICE candidate from server - " + error;
+      console.log(msg);
+      log(msg);
+    });
 
-        setTimeout(addServerIceCandidates, pollingTimeout);
-    }
+    setTimeout(addServerIceCandidates, pollingTimeout);
+  }
 }
 
 async function sendIceCandidate(candidate) {
-    const body = { candidates: [candidate] };
+  const body = { candidates: [candidate] };
 
-    await fetch(webRtcUrl + "/IceCandidates/" + sessionId, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
-        },
-        body: JSON.stringify(body)
-    }).then(async function (response) {
+  await fetch(webRtcUrl + "/IceCandidates/" + sessionId, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    },
+    body: JSON.stringify(body)
+  }).then(async function (response) {
 
-        await checkResponse(response);
+    await checkResponse(response);
 
-        console.log('Client candidates sent successfully');
-    }).catch (function (error) {
-        let msg = "Failed to send ICE candidate - " + error;
-        console.log(msg);
-        log(msg);
-    });
+    console.log('Client candidates sent successfully');
+  }).catch(function (error) {
+    let msg = "Failed to send ICE candidate - " + error;
+    console.log(msg);
+    log(msg);
+  });
 }
 
 async function checkResponse(response) {
-    if (!response.ok) {
-        let errorInfo = await response.json();
-        throw Error(errorInfo);
-    }
-    return true;
+  if (!response.ok) {
+    let errorInfo = await response.json();
+    throw Error(errorInfo);
+  }
+  return true;
 }
 
 async function login() {
-    if(peerConnection != null) await peerConnection.close();
+  if (peerConnection != null) await peerConnection.close();
 
-    try {
-        token = await getToken();
-        return;
-    } catch (error) {
-        console.log(error);
-        return error;
-    }
+  try {
+    token = await getToken();
+    return;
+  } catch (error) {
+    console.log(error);
+    return error;
+  }
 }
 
 
